@@ -1,0 +1,216 @@
+name: Monthly Tap Update Check
+
+on:
+  # schedule:
+  #   - cron: "0 6 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  monthly-check:
+    runs-on: macos-latest
+    env:
+      TAP_NAME: zerospiel/tools
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Homebrew version
+        run: brew --version
+
+      - name: Tap current repository
+        run: |
+          brew untap "$TAP_NAME" || true
+          brew tap "$TAP_NAME" "$GITHUB_WORKSPACE"
+
+      - name: Fetch all formulae and casks (URL/checksum validation)
+        id: fetch_all
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          : > fetch-failures.txt
+
+          failures=0
+
+          while IFS= read -r file; do
+            name="$(basename "$file" .rb)"
+            token="$TAP_NAME/$name"
+            echo "Checking formula fetch: $token"
+            if ! brew fetch --retry --force --formula "$token"; then
+              echo "formula:$token" >> fetch-failures.txt
+              failures=1
+            fi
+          done < <(find Formula -type f -name "*.rb" -print | sort)
+
+          while IFS= read -r file; do
+            name="$(basename "$file" .rb)"
+            token="$TAP_NAME/$name"
+            echo "Checking cask fetch: $token"
+            if ! brew fetch --retry --force --cask "$token"; then
+              echo "cask:$token" >> fetch-failures.txt
+              failures=1
+            fi
+          done < <(find Casks -type f -name "*.rb" -print | sort)
+
+          if [ "$failures" -eq 1 ]; then
+            echo "fetch_failed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "fetch_failed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run livecheck for all formulae and casks
+        id: livecheck
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          : > livecheck-results.jsons
+
+          while IFS= read -r file; do
+            name="$(basename "$file" .rb)"
+            token="$TAP_NAME/$name"
+            echo "Livecheck formula: $token"
+            brew livecheck --json "$token" >> livecheck-results.jsons || true
+          done < <(find Formula -type f -name "*.rb" -print | sort)
+
+          while IFS= read -r file; do
+            name="$(basename "$file" .rb)"
+            token="$TAP_NAME/$name"
+            echo "Livecheck cask: $token"
+            brew livecheck --json --cask "$token" >> livecheck-results.jsons || true
+          done < <(find Casks -type f -name "*.rb" -print | sort)
+
+      - name: Build monthly report
+        id: report
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import datetime
+          import json
+          from pathlib import Path
+
+          fetch_failures = []
+          ff = Path("fetch-failures.txt")
+          if ff.exists():
+            fetch_failures = [line.strip() for line in ff.read_text().splitlines() if line.strip()]
+
+          raw = Path("livecheck-results.jsons")
+          text = raw.read_text() if raw.exists() else ""
+
+          decoder = json.JSONDecoder()
+          i = 0
+          entries = []
+          while i < len(text):
+            while i < len(text) and text[i].isspace():
+              i += 1
+            if i >= len(text):
+              break
+            obj, j = decoder.raw_decode(text, i)
+            i = j
+            if isinstance(obj, list):
+              entries.extend(obj)
+
+          updates = []
+          for e in entries:
+            status = (e.get("status") or "").lower()
+            if status in {"latest", "skipped"}:
+              continue
+            item = e.get("formula") or e.get("cask") or "unknown"
+            updates.append(
+              {
+                "item": item,
+                "status": status or "unknown",
+                "current": str(e.get("current") or "n/a"),
+                "latest": str(e.get("latest") or "n/a"),
+              }
+            )
+
+          now = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+          lines = [
+            f"# Homebrew Tap Monthly Report ({now} UTC)",
+            "",
+          ]
+
+          if fetch_failures:
+            lines.append("## Fetch / checksum failures")
+            lines.append("")
+            for f in fetch_failures:
+              lines.append(f"- {f}")
+            lines.append("")
+          else:
+            lines.append("## Fetch / checksum failures")
+            lines.append("")
+            lines.append("No fetch/checksum failures.")
+            lines.append("")
+
+          if updates:
+            lines.append("## Available updates")
+            lines.append("")
+            lines.append("| Item | Status | Current | Latest |")
+            lines.append("|---|---|---|---|")
+            for u in updates:
+              lines.append(f"| {u['item']} | {u['status']} | {u['current']} | {u['latest']} |")
+            lines.append("")
+          else:
+            lines.append("## Available updates")
+            lines.append("")
+            lines.append("No updates detected by `brew livecheck`.")
+            lines.append("")
+
+          report = "\n".join(lines)
+          Path("monthly-report.md").write_text(report)
+          PY
+
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          from pathlib import Path
+          text = Path("monthly-report.md").read_text()
+          has_updates = "No updates detected by `brew livecheck`." not in text
+          has_fetch_failures = "No fetch/checksum failures." not in text
+          print(f"has_updates={'true' if has_updates else 'false'}")
+          print(f"has_fetch_failures={'true' if has_fetch_failures else 'false'}")
+          PY
+
+          cat monthly-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create or update monthly report issue
+        if: steps.report.outputs.has_updates == 'true' || steps.report.outputs.has_fetch_failures == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const title = 'Homebrew tap monthly update report';
+            const body = fs.readFileSync('monthly-report.md', 'utf8');
+            const { owner, repo } = context.repo;
+
+            const openIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            const existing = openIssues.find((issue) => issue.title === title);
+
+            if (existing) {
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: existing.number,
+                body,
+              });
+              core.info(`Updated issue #${existing.number}`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner,
+                repo,
+                title,
+                body,
+              });
+              core.info(`Created issue #${created.data.number}`);
+            }

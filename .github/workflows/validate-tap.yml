@@ -1,0 +1,164 @@
+name: Validate Homebrew Tap
+
+on:
+  pull_request:
+    paths:
+      - "Formula/**"
+      - "Casks/**"
+      - ".github/workflows/validate-tap.yml"
+  push:
+    branches: [master]
+    paths:
+      - "Formula/**"
+      - "Casks/**"
+      - ".github/workflows/validate-tap.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: validate-tap-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      formula_changed: ${{ steps.formula.outputs.any_changed }}
+      formula_files: ${{ steps.formula.outputs.all_changed_files }}
+      cask_changed: ${{ steps.cask.outputs.any_changed }}
+      cask_files: ${{ steps.cask.outputs.all_changed_files }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed formula files
+        id: formula
+        uses: tj-actions/changed-files@v45
+        with:
+          files: |
+            Formula/*.rb
+
+      - name: Detect changed cask files
+        id: cask
+        uses: tj-actions/changed-files@v45
+        with:
+          files: |
+            Casks/*.rb
+
+  syntax:
+    name: Validate Tap Syntax
+    needs: [changes]
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.formula_changed == 'true' || needs.changes.outputs.cask_changed == 'true'
+    runs-on: macos-latest
+    env:
+      TAP_NAME: zerospiel/tools
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Homebrew version
+        run: brew --version
+
+      - name: Tap current repository
+        run: |
+          brew untap "$TAP_NAME" || true
+          brew tap "$TAP_NAME" "$GITHUB_WORKSPACE"
+
+      - name: Validate syntax for whole tap
+        run: |
+          brew readall --syntax --eval-all "$TAP_NAME"
+
+  formulae:
+    name: Validate Formulae
+    needs: [changes, syntax]
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.formula_changed == 'true'
+    runs-on: macos-latest
+    env:
+      TAP_NAME: zerospiel/tools
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Homebrew version
+        run: brew --version
+
+      - name: Tap current repository
+        run: |
+          brew untap "$TAP_NAME" || true
+          brew tap "$TAP_NAME" "$GITHUB_WORKSPACE"
+
+      - name: Audit and fetch all formulae
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          found=0
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            file_list="$(find Formula -type f -name "*.rb" -print | sort || true)"
+          else
+            file_list="$(printf '%s\n' "${{ needs.changes.outputs.formula_files }}" | tr ' ' '\n' | grep '^Formula/.*\.rb$' || true)"
+          fi
+
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            found=1
+            name="$(basename "$file" .rb)"
+            token="$TAP_NAME/$name"
+            echo "::group::Formula $token"
+            brew audit --strict --online --formula "$token"
+            brew fetch --retry --force --formula "$token"
+            echo "::endgroup::"
+          done <<< "$file_list"
+
+          if [ "$found" -eq 0 ]; then
+            echo "No changed formula files found"
+          fi
+
+  casks:
+    name: Validate Casks
+    needs: [changes, syntax]
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.cask_changed == 'true'
+    runs-on: macos-latest
+    env:
+      TAP_NAME: zerospiel/tools
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Homebrew version
+        run: brew --version
+
+      - name: Tap current repository
+        run: |
+          brew untap "$TAP_NAME" || true
+          brew tap "$TAP_NAME" "$GITHUB_WORKSPACE"
+
+      - name: Audit and fetch all casks
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          found=0
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            file_list="$(find Casks -type f -name "*.rb" -print | sort || true)"
+          else
+            file_list="$(printf '%s\n' "${{ needs.changes.outputs.cask_files }}" | tr ' ' '\n' | grep '^Casks/.*\.rb$' || true)"
+          fi
+
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            found=1
+            name="$(basename "$file" .rb)"
+            token="$TAP_NAME/$name"
+            echo "::group::Cask $token"
+            brew audit --strict --online --cask "$token"
+            brew fetch --retry --force --cask "$token"
+            echo "::endgroup::"
+          done <<< "$file_list"
+
+          if [ "$found" -eq 0 ]; then
+            echo "No changed cask files found"
+          fi

@@ -94,3 +94,28 @@ brew update
 brew upgrade zerospiel/tools/<formula_name>
 brew uninstall zerospiel/tools/<formula_name>
 ```
+
+## Automation (GitHub Actions)
+
+This tap has two workflows:
+
+- `.github/workflows/validate-tap.yml`
+  - Triggers on PR/push for `Formula/**` and `Casks/**`
+  - Uses workflow concurrency to cancel superseded in-progress runs on the same ref
+  - Splits checks into separate jobs: syntax, formulae, casks
+  - Runs `brew readall --syntax --eval-all` in the syntax job
+  - Runs strict online audits in dedicated formula/cask jobs (changed files on PR/push)
+  - Runs `brew fetch --force` for changed files to verify URL reachability and SHA256 checks
+  - On manual dispatch, validates all formulae/casks in the tap
+
+- `.github/workflows/monthly-livecheck.yml`
+  - Manual trigger only (`workflow_dispatch`)
+  - Fetches all formulae/casks (URL + checksum validation)
+  - Runs `brew livecheck --json` for each entry
+  - Builds a report and posts/updates an issue when updates or fetch failures are detected
+
+To run monthly check manually:
+
+1. Open GitHub Actions in this repository.
+1. Select `Monthly Tap Update Check`.
+1. Click `Run workflow`.
