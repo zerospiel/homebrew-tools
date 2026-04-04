@@ -5,13 +5,11 @@ on:
     paths:
       - "Formula/**"
       - "Casks/**"
-      - ".github/workflows/validate-tap.yml"
   push:
     branches: [master]
     paths:
       - "Formula/**"
       - "Casks/**"
-      - ".github/workflows/validate-tap.yml"
   workflow_dispatch:
 
 concurrency:
@@ -38,6 +36,7 @@ jobs:
         with:
           files: |
             Formula/*.rb
+            Formula/**/*.rb
 
       - name: Detect changed cask files
         id: cask
@@ -45,6 +44,7 @@ jobs:
         with:
           files: |
             Casks/*.rb
+            Casks/**/*.rb
 
   syntax:
     name: Validate Tap Syntax
@@ -54,6 +54,8 @@ jobs:
     env:
       TAP_NAME: zerospiel/tools
       HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -78,6 +80,8 @@ jobs:
     env:
       TAP_NAME: zerospiel/tools
       HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -90,7 +94,7 @@ jobs:
           brew untap "$TAP_NAME" || true
           brew tap "$TAP_NAME" "$GITHUB_WORKSPACE"
 
-      - name: Audit and fetch all formulae
+      - name: Audit, fetch, build, and test formulae
         shell: bash
         run: |
           set -euo pipefail
@@ -100,7 +104,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             file_list="$(find Formula -type f -name "*.rb" -print | sort || true)"
           else
-            file_list="$(printf '%s\n' "${{ needs.changes.outputs.formula_files }}" | tr ' ' '\n' | grep '^Formula/.*\.rb$' || true)"
+            file_list="$(printf '%s\n' "${{ needs.changes.outputs.formula_files }}" | tr ' ' '\n' | grep '^Formula/.*\.rb$' | sort -u || true)"
           fi
 
           while IFS= read -r file; do
@@ -111,6 +115,8 @@ jobs:
             echo "::group::Formula $token"
             brew audit --strict --online --formula "$token"
             brew fetch --retry --force --formula "$token"
+            brew install --build-from-source "$token"
+            brew test "$token"
             echo "::endgroup::"
           done <<< "$file_list"
 
@@ -126,6 +132,8 @@ jobs:
     env:
       TAP_NAME: zerospiel/tools
       HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -148,7 +156,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             file_list="$(find Casks -type f -name "*.rb" -print | sort || true)"
           else
-            file_list="$(printf '%s\n' "${{ needs.changes.outputs.cask_files }}" | tr ' ' '\n' | grep '^Casks/.*\.rb$' || true)"
+            file_list="$(printf '%s\n' "${{ needs.changes.outputs.cask_files }}" | tr ' ' '\n' | grep '^Casks/.*\.rb$' | sort -u || true)"
           fi
 
           while IFS= read -r file; do
