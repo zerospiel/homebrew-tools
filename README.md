@@ -2,6 +2,13 @@
 
 This repository is a custom Homebrew tap `zerospiel/tools`.
 
+## Repository Layout
+
+- `Formula/`: Homebrew formulae
+- `Casks/`: Homebrew casks
+- `.github/workflows/validate-tap.yml`: validation workflow for PRs, pushes, and manual runs
+- `.github/workflows/monthly-livecheck.yml`: manual update-check workflow
+
 ## Add a new Formula
 
 Create `Formula/<name>.rb`.
@@ -26,13 +33,18 @@ class MyCli < Formula
 end
 ```
 
-Validation locally:
+Validation locally from this repository checkout:
 
 ```bash
-brew audit --strict Formula/<name>.rb
-brew install --build-from-source ./Formula/<name>.rb
-brew test <name>
+brew tap zerospiel/tools "$(pwd)"
+brew readall --syntax --eval-all zerospiel/tools
+brew audit --strict --online zerospiel/tools/<name>
+brew fetch --retry --force --formula zerospiel/tools/<name>
+brew install --build-from-source zerospiel/tools/<name>
+brew test zerospiel/tools/<name>
 ```
+
+To update an existing formula, edit `Formula/<name>.rb` and run the same validation steps.
 
 ## Add a new Cask
 
@@ -54,14 +66,19 @@ cask "my-app" do
 end
 ```
 
-Validation locally:
+Validation locally from this repository checkout:
 
 ```bash
-brew audit --cask --strict Casks/<name>.rb
-brew install --cask ./Casks/<name>.rb
+brew tap zerospiel/tools "$(pwd)"
+brew readall --syntax --eval-all zerospiel/tools
+brew audit --strict --online --cask zerospiel/tools/<name>
+brew fetch --retry --force --cask zerospiel/tools/<name>
+brew install --cask zerospiel/tools/<name>
 ```
 
-## Install from this tap (user)
+To update an existing cask, edit `Casks/<name>.rb` and run the same validation steps.
+
+## Install from this tap
 
 Tap this repository:
 
@@ -75,13 +92,13 @@ Equivalent explicit URL form:
 brew tap zerospiel/tools https://github.com/zerospiel/homebrew-tools.git
 ```
 
-Install formula:
+Install a formula from this tap:
 
 ```bash
 brew install zerospiel/tools/<formula_name>
 ```
 
-Install cask:
+Install a cask from this tap:
 
 ```bash
 brew install --cask zerospiel/tools/<cask_name>
@@ -100,13 +117,13 @@ brew uninstall zerospiel/tools/<formula_name>
 This tap has two workflows:
 
 - `.github/workflows/validate-tap.yml`
-  - Triggers on PR/push for `Formula/**` and `Casks/**`
+  - Triggers on PR/push for `Formula/**` and `Casks/**`, plus manual dispatch
   - Uses workflow concurrency to cancel superseded in-progress runs on the same ref
-  - Splits checks into separate jobs: syntax, formulae, casks
+  - Uses four jobs: `changes`, `syntax`, `formulae`, and `casks`
   - Runs `brew readall --syntax --eval-all` in the syntax job
-  - Runs strict online audits in dedicated formula/cask jobs (changed files on PR/push)
-  - Runs `brew fetch --force` for changed files to verify URL reachability and SHA256 checks
-  - On manual dispatch, validates all formulae/casks in the tap
+  - Runs strict online audits in dedicated formula/cask jobs for changed files on PR/push, or all entries on manual dispatch
+  - Runs `brew fetch --retry --force` for formulae/casks being validated to verify URL reachability and SHA256 checks
+  - Builds changed formulae from source and runs `brew test` after audit/fetch
 
 - `.github/workflows/monthly-livecheck.yml`
   - Manual trigger only (`workflow_dispatch`)
