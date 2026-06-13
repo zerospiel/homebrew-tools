@@ -5,21 +5,21 @@
 class Pidof < Formula
   desc "Display the PID number for a given process name(s)"
   homepage "https://github.com/zerospiel/pidof"
-  version "0.1.2"
+  version "0.1.3"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/zerospiel/pidof/releases/download/v0.1.2/pidof_0.1.2_Darwin_x86_64.tar.gz"
-      sha256 "10d81832252c1e9d25d979a110620144ed5209cd2e3a7053a6db4468d10b68da"
+      url "https://github.com/zerospiel/pidof/releases/download/v0.1.3/pidof_0.1.3_Darwin_x86_64.tar.gz"
+      sha256 "db46be85249bb364a776b64fd2dd70b6712aa66b9b9f9da8a340f8d0bf324106"
 
       define_method(:install) do
         bin.install "pidof"
       end
     end
     if Hardware::CPU.arm?
-      url "https://github.com/zerospiel/pidof/releases/download/v0.1.2/pidof_0.1.2_Darwin_arm64.tar.gz"
-      sha256 "9259651204ddc483b0f65addd532de572d0a8bfaaa2e26f8f070d3efa319695b"
+      url "https://github.com/zerospiel/pidof/releases/download/v0.1.3/pidof_0.1.3_Darwin_arm64.tar.gz"
+      sha256 "474df53271439e61920f8a3fb42c664903c6142083e6f57b8d67576123446c14"
 
       define_method(:install) do
         bin.install "pidof"
@@ -29,15 +29,15 @@ class Pidof < Formula
 
   on_linux do
     if Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
-      url "https://github.com/zerospiel/pidof/releases/download/v0.1.2/pidof_0.1.2_Linux_x86_64.tar.gz"
-      sha256 "b3ce43b0bbd6ba103eea363c9ca27431420aad8316fc15cd78881f9a4e2fb108"
+      url "https://github.com/zerospiel/pidof/releases/download/v0.1.3/pidof_0.1.3_Linux_x86_64.tar.gz"
+      sha256 "a2c1098eb301b1824856458d6cd01cc7b01b03aef16626b59ec81a784a21fc26"
       define_method(:install) do
         bin.install "pidof"
       end
     end
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/zerospiel/pidof/releases/download/v0.1.2/pidof_0.1.2_Linux_arm64.tar.gz"
-      sha256 "7f2d125fa977b81d8ccf59c6ee70a20dd1dda7bc4fee1cd40bba89a9658ad2e2"
+      url "https://github.com/zerospiel/pidof/releases/download/v0.1.3/pidof_0.1.3_Linux_arm64.tar.gz"
+      sha256 "e808e4ed5a45a63977ad02ed77ac51bb5975012566ab1aacebbf5b7105f62965"
       define_method(:install) do
         bin.install "pidof"
       end
